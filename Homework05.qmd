@@ -1,0 +1,332 @@
+---
+title: "ECON426: Heteroskedasticity Testing and Robust Inference"
+format:
+  docx:
+    toc: false
+    number-sections: false
+---
+
+# Introduction
+
+In this assignment you will explore heteroskedasticity - a violation of the classical regression assumption that error variance is constant. You will learn to detect heteroskedasticity using graphical methods and formal tests, and apply remedies including robust standard errors and weighted least squares.
+
+We will use the `food` dataset, which contains data on weekly food expenditure and income for 40 households. The data is available in the `data/` folder. This is a classic example where heteroskedasticity is expected: higher-income households have more variability in their food spending.
+
+The topics you will cover are:
+
+1. Data Loading and Exploration
+2. Graphical Detection of Heteroskedasticity
+3. Breusch-Pagan Test
+4. White's Test
+5. Robust Standard Errors
+6. Weighted Least Squares
+7. Application to Wage Data
+
+# 1. Data Loading and Exploration
+
+**Objective:**
+Load the food dataset and understand the relationship between income and food expenditure.
+
+**Instructions:**
+1. Load the required packages using pacman.
+2. Load the food dataset from the local data folder.
+3. Create summary statistics and a scatter plot.
+
+**Code:**
+
+```{r}
+# Step 1: Load required packages
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, lmtest, sandwich, jtools, knitr)
+
+# Step 2: Load the food dataset from local data folder
+food <- read.csv("data/food.csv")
+
+# Step 3: Examine the data
+glimpse(food)
+summary(food)
+```
+
+**Scatter Plot:**
+
+```{r}
+# Visualize the relationship
+ggplot(food, aes(x = income, y = food_exp)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(x = "Weekly Income ($100)",
+       y = "Weekly Food Expenditure ($)",
+       title = "Food Expenditure vs Income") +
+  theme_minimal()
+```
+
+**Question 1:** Describe the relationship between income and food expenditure. Do you notice anything about the spread of the data as income increases?
+
+# 2. Graphical Detection of Heteroskedasticity
+
+**Objective:**
+Use residual plots to visually detect heteroskedasticity.
+
+**Instructions:**
+1. Estimate the OLS regression of food expenditure on income.
+2. Extract residuals and create diagnostic plots.
+3. Look for patterns indicating heteroskedasticity.
+
+**Code:**
+
+```{r}
+# Estimate OLS model
+mod_ols <- lm(food_exp ~ income, data = food)
+summ(mod_ols, digits = 4)
+
+# Add residuals and fitted values
+food$resid <- residuals(mod_ols)
+food$fitted <- fitted(mod_ols)
+```
+
+**Residuals vs Fitted Values:**
+
+```{r}
+ggplot(food, aes(x = fitted, y = resid)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(x = "Fitted Values", y = "Residuals",
+       title = "Residuals vs Fitted Values") +
+  theme_minimal()
+```
+
+**Residuals vs Income:**
+
+```{r}
+ggplot(food, aes(x = income, y = resid)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(x = "Income", y = "Residuals",
+       title = "Residuals vs Income") +
+  theme_minimal()
+```
+
+**Scale-Location Plot:**
+
+```{r}
+food$sqrt_abs_resid <- sqrt(abs(food$resid))
+
+ggplot(food, aes(x = fitted, y = sqrt_abs_resid)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, color = "red") +
+  labs(x = "Fitted Values", y = expression(sqrt("|Residuals|")),
+       title = "Scale-Location Plot") +
+  theme_minimal()
+```
+
+**Question 2:** Describe the pattern you observe in these residual plots. Is there evidence of heteroskedasticity? What shape do you see?
+
+# 3. Breusch-Pagan Test
+
+**Objective:**
+Conduct a formal test for heteroskedasticity using the Breusch-Pagan test.
+
+**Instructions:**
+1. Use the `bptest()` function from the lmtest package.
+2. State the null and alternative hypotheses.
+3. Interpret the test statistic and p-value.
+
+**Code:**
+
+```{r}
+# Breusch-Pagan test
+bp_test <- bptest(mod_ols)
+print(bp_test)
+```
+
+**Explanation:**
+The Breusch-Pagan test estimates an auxiliary regression:
+$$\hat{e}_i^2 = \alpha_0 + \alpha_1 X_i + v_i$$
+
+- **$H_0$**: $\alpha_1 = 0$ (Homoskedasticity - constant variance)
+- **$H_a$**: $\alpha_1 \neq 0$ (Heteroskedasticity - variance changes with X)
+
+The test statistic $BP = nR^2$ follows a $\chi^2(1)$ distribution under the null.
+
+**Question 3:** Report the BP test statistic and p-value. At the 5% significance level, do you reject the null hypothesis of homoskedasticity?
+
+# 4. White's Test
+
+**Objective:**
+Conduct White's more general test for heteroskedasticity.
+
+**Instructions:**
+1. Include squared terms in the auxiliary regression.
+2. Compare results to the BP test.
+
+**Code:**
+
+```{r}
+# White's test (includes squared terms)
+white_test <- bptest(mod_ols, ~ income + I(income^2), data = food)
+print(white_test)
+```
+
+**Explanation:**
+White's test is more general because it allows the variance to be a nonlinear function of X:
+$$\hat{e}_i^2 = \alpha_0 + \alpha_1 X_i + \alpha_2 X_i^2 + v_i$$
+
+**Question 4:** How do the White test results compare to the BP test? When might these tests give different conclusions?
+
+# 5. Robust Standard Errors
+
+**Objective:**
+Estimate heteroskedasticity-consistent (robust) standard errors.
+
+**Instructions:**
+1. Compare OLS standard errors to robust standard errors.
+2. Examine how t-statistics and p-values change.
+
+**Code:**
+
+```{r}
+# OLS standard errors
+cat("=== OLS Standard Errors ===\n")
+summ(mod_ols, digits = 4)
+```
+
+```{r}
+# Robust standard errors (HC1 - Stata default)
+cat("=== Robust Standard Errors (HC1) ===\n")
+summ(mod_ols, robust = "HC1", digits = 4)
+```
+
+**Comparison of Different HC Estimators:**
+
+```{r}
+# Compare HC0, HC1, HC2, HC3
+ols_se <- sqrt(diag(vcov(mod_ols)))
+hc0_se <- sqrt(diag(vcovHC(mod_ols, type = "HC0")))
+hc1_se <- sqrt(diag(vcovHC(mod_ols, type = "HC1")))
+hc3_se <- sqrt(diag(vcovHC(mod_ols, type = "HC3")))
+
+tibble(
+  Term = names(ols_se),
+  OLS = ols_se,
+  HC0 = hc0_se,
+  HC1 = hc1_se,
+  HC3 = hc3_se
+) %>%
+  mutate(across(where(is.numeric), ~round(., 4))) %>%
+  kable(caption = "Comparison of Standard Error Estimators")
+```
+
+**Question 5:** How do the robust standard errors compare to the OLS standard errors? Are they larger or smaller? How does this affect your inference about the effect of income on food expenditure?
+
+# 6. Weighted Least Squares
+
+**Objective:**
+Apply WLS when you can model the variance structure.
+
+**Instructions:**
+1. Assume variance is proportional to income: $Var(e_i) = \sigma^2 \cdot income_i$
+2. Estimate WLS with weights = 1/income.
+3. Compare to OLS results.
+
+**Code:**
+
+```{r}
+# WLS assuming Var(e) proportional to income
+mod_wls <- lm(food_exp ~ income, data = food, weights = 1/income)
+
+# Compare OLS and WLS
+export_summs(mod_ols, mod_wls,
+             model.names = c("OLS", "WLS"),
+             digits = 4,
+             statistics = c(N = "nobs", R2 = "r.squared"))
+```
+
+**Feasible GLS (FGLS):**
+
+```{r}
+# Step 1: Estimate variance function from OLS residuals
+food$log_resid_sq <- log(residuals(mod_ols)^2)
+var_model <- lm(log_resid_sq ~ log(income), data = food)
+
+# Step 2: Get predicted weights
+food$h_hat <- exp(fitted(var_model))
+
+# Step 3: FGLS
+mod_fgls <- lm(food_exp ~ income, data = food, weights = 1/h_hat)
+
+# Compare all three
+export_summs(mod_ols, mod_wls, mod_fgls,
+             model.names = c("OLS", "WLS", "FGLS"),
+             digits = 4)
+```
+
+**Question 6:** How do the coefficient estimates change between OLS, WLS, and FGLS? Which method would you recommend and why?
+
+# 7. Application to Wage Data
+
+**Objective:**
+Apply heteroskedasticity analysis to the cps5 wage dataset.
+
+**Instructions:**
+1. Load the cps5 dataset.
+2. Estimate a wage equation with education and experience.
+3. Test for heteroskedasticity and apply remedies.
+
+**Code:**
+
+```{r}
+# Load cps5 data from local data folder
+cps5 <- read.csv("data/cps5.csv")
+
+# Estimate wage model
+wage_mod <- lm(wage ~ educ + exper + I(exper^2), data = cps5)
+summ(wage_mod, digits = 4)
+```
+
+**Test for Heteroskedasticity:**
+
+```{r}
+# BP test
+bptest(wage_mod)
+```
+
+**Residual Plot:**
+
+```{r}
+cps5$resid <- residuals(wage_mod)
+cps5$fitted <- fitted(wage_mod)
+
+ggplot(cps5, aes(x = fitted, y = resid)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(x = "Fitted Values", y = "Residuals",
+       title = "Wage Model: Residuals vs Fitted") +
+  theme_minimal()
+```
+
+**Robust Inference:**
+
+```{r}
+# Compare OLS vs Robust
+summ(wage_mod, robust = "HC1", digits = 4)
+```
+
+**Question 7:** Based on your analysis:
+a) Is there evidence of heteroskedasticity in the wage model?
+b) How do the robust standard errors compare to OLS standard errors?
+c) Does heteroskedasticity change your conclusions about the returns to education?
+
+# Summary Questions
+
+Answer the following questions in complete sentences:
+
+1. **Consequences:** What are the consequences of heteroskedasticity for OLS estimation? Which properties of OLS are affected?
+
+2. **Detection:** Compare graphical methods versus formal tests for detecting heteroskedasticity. What are the advantages of each?
+
+3. **Remedies:** When would you prefer robust standard errors versus WLS? What information do you need to use WLS?
+
+4. **Application:** A colleague argues that since OLS is still unbiased with heteroskedasticity, there's no need to worry about it. How would you respond?
